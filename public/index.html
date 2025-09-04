@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>SpiceFlow Quests</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+  <header class="hero">
+    <h1>SpiceFlow</h1>
+    <p>Complete quests. Earn points. Climb the leaderboard.</p>
+  </header>
+
+  <main class="container">
+    <section class="card">
+      <h2>Your Profile</h2>
+      <div class="row">
+        <label>User ID</label>
+        <input id="userId" placeholder="e.g. softalpha" />
+        <button id="saveUser">Use</button>
+      </div>
+      <div id="profile"></div>
+    </section>
+
+    <section class="card">
+      <h2>Quests</h2>
+      <div id="tasks" class="tasks"></div>
+    </section>
+
+    <section class="card admin" id="adminPanel" hidden>
+      <h2>Admin • Manage Tasks</h2>
+      <div class="row">
+        <label>Admin Key</label>
+        <input id="adminKey" placeholder="x-admin-key" />
+      </div>
+
+      <details>
+        <summary>Create Task</summary>
+        <div class="row"><label>Name</label><input id="tName" /></div>
+        <div class="row"><label>Type</label>
+          <select id="tType">
+            <option value="social">social</option>
+            <option value="tx">tx</option>
+            <option value="special">special</option>
+          </select>
+        </div>
+        <div class="row"><label>Points</label><input id="tPoints" type="number" value="100" /></div>
+        <div class="row"><label>Link</label><input id="tHref" /></div>
+        <div class="row"><label>Description</label><input id="tDesc" /></div>
+        <button id="createTask">Create</button>
+        <pre id="adminOut"></pre>
+      </details>
+    </section>
+  </main>
+
+  <footer class="footer">©️ SpiceNet • SpiceFlow</footer>
+
+  <script>
+    const api = (p)=>fetch(p).then(r=>r.json());
+    const userIdEl = document.getElementById('userId');
+    const saveUserBtn = document.getElementById('saveUser');
+    const profileEl = document.getElementById('profile');
+    const tasksEl = document.getElementById('tasks');
+
+    // admin UI toggled by ?admin=1
+    const adminPanel = document.getElementById('adminPanel');
+    const url = new URL(location.href);
+    if (url.searchParams.get('admin') === '1') adminPanel.hidden = false;
+
+    function uid() {
+      return localStorage.getItem('spiceflow_uid') || '';
+    }
+    function setUid(v) {
+      localStorage.setItem('spiceflow_uid', v);
+      userIdEl.value = v;
+    }
+
+    async function loadProfile() {
+      const id = uid();
+      if (!id) { profileEl.innerHTML = '<em>Set your User ID to track points.</em>'; return; }
+      const d = await api('/api/spiceflow/progress/' + encodeURIComponent(id));
+      const pts = d.user?.points ?? 0;
+      profileEl.innerHTML = `<strong>${d.user?.id || id}</strong> • Points: <strong>${pts}</strong>`;
+    }
+
+    async function loadTasks() {
+      const list = await api('/api/spiceflow/tasks');
+      tasksEl.innerHTML = '';
+      list.forEach(t => {
+        const row = document.createElement('div');
+        row.className = 'task';
+        row.innerHTML = `
+          <div>
+            <div class="t-name">${t.name}</div>
+            <div class="t-meta">${t.type} • ${t.points} pts ${t.href ? '• <a href="'+t.href+'" target="_blank">Open</a>' : ''}</div>
+          </div>
+          <button data-id="${t.id}">Claim</button>
+        `;
+        row.querySelector('button').onclick = async (e) => {
+          const id = uid();
+          if (!id) return alert('Set your User ID first.');
+          const body = { userId: id, taskId: t.id };
+          if (t.type === 'tx') {
+            body.txHash = prompt('Paste your tx hash (0x...)') || '';
+          }
+          const r = await fetch('/api/spiceflow/claim', {
+            method:'POST',
+            headers: { 'Content-Type':'application/json' },
+            body: JSON.stringify(body)
+          }).then(x => x.json());
+          alert(r.message || r.error || 'done');
+          loadProfile();
+        };
+        tasksEl.appendChild(row);
+      });
+    }
+
+    // Admin create task
+    document.getElementById('createTask')?.addEventListener('click', async () => {
+      const out = document.getElementById('adminOut');
+      const payload = {
+        name: document.getElementById('tName').value,
+        type: document.getElementById('tType').value,
+        points: Number(document.getElementById('tPoints').value || 100),
+        href: document.getElementById('tHref').value || null,
+        description: document.getElementById('tDesc').value || null
+      };
+      const key = document.getElementById('adminKey').value;
+      const resp = await fetch('/api/admin/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type':'application/json', 'x-admin-key': key },
+        body: JSON.stringify(payload)
+      });
+      const json = await resp.json();
+      out.textContent = JSON.stringify(json, null, 2);
+      loadTasks();
+    });
+
+    // init
+    if (!uid()) setUid('');
+    userIdEl.value = uid();
+    saveUserBtn.onclick = () => { setUid(userIdEl.value.trim()); loadProfile(); };
+    loadProfile();
+    loadTasks();
+  </script>
+</body>
+</html>
